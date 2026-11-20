@@ -1,13 +1,48 @@
 # 基于 MovieLens 100K 的电影推荐：ItemCF 与热门推荐的对比
 
-本项目是机器学习课程的六人小组专题作业，主题为「推荐系统」。我们计划在 MovieLens 100K 上比较热门推荐与基于物品的协同过滤（ItemCF），检验个性化推荐能否更准确地推荐用户随后给出高分的电影，并比较不同历史评分条数的用户所获得的推荐效果。
+本项目是机器学习课程的六人小组专题作业，主题为「推荐系统」。Python 实现比较热门推荐、ItemCF、相似度加权的 ItemCF 和隐式反馈矩阵分解（ALS），用之后的评分衡量推荐效果。
+
+## 运行项目
+
+在项目目录下使用 Python 3.10 或更新版本。首次运行会从 GroupLens 下载 MovieLens 100K 并缓存到 `data/ml-100k/`，后续可直接使用本地数据。
+
+### 图形界面
+
+在 Windows 双击 `启动图形界面.cmd`，也可以运行 `python gui.py`。如果提示依赖缺失，先运行 `python -m pip install -r requirements.txt`。
+
+- **电影推荐**可以按英文片名或编号搜索并添加喜欢的电影，也可以输入已有用户的编号。选择模型与推荐数量后生成片单，再点击结果查看推荐依据或 ALS 偏好分数。
+- **实验对比**可以切换历史评分分组，查看四种方法的 Recall@10、NDCG@10 和用户数。点击「重新评估」可更新本地结果，点击「打开结果目录」可查看报告和对比图。
+
+图形界面和命令行调用同一套 Python 推荐模型与评估流程。界面默认载入一份电影示例，选用 ALS。加权 ItemCF 使用本项目验证集选出的 λ = 5。
+
+### 命令行
+
+```powershell
+python -m pip install -r requirements.txt
+python main.py evaluate
+```
+
+按英文片名查询电影编号，或分别试用已有用户历史与自定义观影偏好。
+
+```powershell
+python main.py search "Toy Story"
+python main.py recommend --user 42 --model itemcf --top-k 5
+python main.py recommend --likes 50 181 --model als --top-k 5
+python main.py recommend --user 42 --model shrinkage --shrinkage 5
+```
+
+`--likes` 接受电影编号，可以输入多部电影。推荐演示使用目前可用的全部评分。离线实验按时间截断每个阶段的历史，并生成 `results/summary.md`、总体与分组指标 `results/metrics.csv`、验证集调参记录 `results/validation.csv` 和对比图 `results/model_comparison.png`。
+
+也可以手动下载官方压缩包，将解压的 `ml-100k` 目录放在 `data/` 下，或运行 `python main.py --data-dir <数据目录> evaluate` 指定已有数据。公开分享代码时，请让使用者自行从 GroupLens 下载数据。 [官方下载与使用条款](https://grouplens.org/datasets/movielens/100k/)
 
 ## 数据与评估
 
 - 使用 [GroupLens 发布的 MovieLens 100K](https://grouplens.org/datasets/movielens/100k/)，其中包含 10 万条带时间戳的电影评分。实验使用用户 ID、电影 ID、评分和时间戳，案例展示时补充电影名称。
 - 按全局时间顺序划分训练集、验证集和测试集。每种方法都从当时已有评分记录的电影中生成推荐，并排除用户此前已评分的电影。
 - 将 4 星及以上的评分视为喜欢。评估时使用未来记录中符合候选条件的高分电影，比较各方法的 **Recall@10**（用户喜欢的候选电影中有多大比例进入前 10 名）和 **NDCG@10**（用户喜欢的电影排得有多靠前）。
-- 用验证集选择超参数，定稿后在测试集上比较结果。除总体指标外，按用户历史评分条数分组，并选取推荐成功和失败的案例分析原因。
+- 默认按约 70%、15%、15% 分配评分记录，同一秒的记录归入同一时间窗口。调整相似度权重时只用训练集拟合并在验证集打分。测试时固定超参数，使用训练集与验证集作为历史。
+- 每位用户的指标先独立计算，再取平均。结果报告同时给出总体指标、按历史评分条数划分的分组指标和用户案例。
+- 测试集只对有可达高分电影的用户计分。可达电影必须在测试开始前已有评分，且该用户此前未评过。没有高分历史的用户使用热门推荐作为兜底。
 
 ## 对比方法
 
@@ -15,9 +50,10 @@
 | --- | --- |
 | 热门推荐 | 按历史数据中每部电影获得的高分次数排序，作为对照基线。 |
 | ItemCF | 根据用户的高分记录计算电影之间的余弦相似度，用用户喜欢过的电影为候选电影打分。 |
-| 改进 ItemCF | 降低共同高分用户较少的电影对的相似度权重，验证这种调整对总体结果和不同用户分组的影响。 |
+| 改进 ItemCF | 用 `c / (c + λ)` 缩减余弦相似度，其中 `c` 是共同给出高分的用户数。`λ` 由验证集 NDCG 选择。 |
+| 隐式反馈 ALS | 将 4 星及以上转成正反馈，交替优化用户和电影的潜因子。用因子向量的点积给候选电影排序。 |
 
-ItemCF 的算法原理参考 [Sarwar 等人的论文](https://grouplens.org/site-content/uploads/Item-Based-WWW-2001.pdf)。本项目计划实现适用于 Top 10 电影推荐的版本。
+ALS 用 NumPy 求解带 L2 正则化的加权最小二乘。训练时提升正反馈的权重，交替固定电影向量求用户向量、固定用户向量求电影向量。对于自定义观影偏好，固定已训练的电影向量并根据输入求新的用户向量。 [ItemCF 论文](https://grouplens.org/site-content/uploads/Item-Based-WWW-2001.pdf) · [隐式反馈 ALS 论文](https://yifanhu.net/PUB/cf.pdf)
 
 ## 小组分工
 
