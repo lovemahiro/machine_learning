@@ -14,6 +14,7 @@ from recommendations import RecommendationSession
 ROOT = Path(__file__).resolve().parent
 RESULTS = ROOT / "results"
 EXAMPLE = (50, 172, 181)
+MOVIES_PER_PAGE = 50
 MODELS = {
     "ALS 矩阵分解": "als",
     "ItemCF 协同过滤": "itemcf",
@@ -78,6 +79,7 @@ class MovieApp(tk.Tk):
 
         self.session = None
         self.picks = []
+        self.catalog_page = 0
         self.details = {}
         self.metrics = []
         self.metric_keys = ()
@@ -103,7 +105,7 @@ class MovieApp(tk.Tk):
         self.data_status = ttk.Label(footer, text="正在读取 MovieLens 100K…", style="Footer.TLabel")
         self.data_status.pack(side="left")
         ttk.Label(footer, text="机器学习课程项目", style="Footer.TLabel").pack(side="right")
-        self.query.trace_add("write", self.update_catalog)
+        self.query.trace_add("write", self.search_catalog)
         self.user_id.trace_add("write", self.form_changed)
         self.model.trace_add("write", self.form_changed)
         self.top_k.trace_add("write", self.form_changed)
@@ -127,6 +129,7 @@ class MovieApp(tk.Tk):
         style.configure("Film.TLabel", background=WHITE, foreground=INK, font=(FONT, 12, "bold"))
         style.configure("TButton", font=(FONT, 10), padding=(11, 6), background=WHITE, foreground=INK, bordercolor=RULE, lightcolor=WHITE, darkcolor=WHITE)
         style.map("TButton", background=[("disabled", PAPER), ("active", SELECTION)], foreground=[("disabled", "#716d66")], bordercolor=[("focus", ACCENT)])
+        style.configure("Pager.TButton", font=(FONT, 9), padding=(6, 3))
         style.configure("Primary.TButton", font=(FONT, 10, "bold"), padding=(13, 7), background=ACCENT, foreground=WHITE, bordercolor=ACCENT, lightcolor=ACCENT, darkcolor=ACCENT)
         style.map("Primary.TButton", background=[("disabled", "#e2d6ce"), ("active", ACCENT_HOVER)], foreground=[("disabled", "#67534b")], bordercolor=[("focus", INK)])
         style.configure("Tab.TButton", background=NAV, foreground="#cdd5d5", borderwidth=0, lightcolor=NAV, darkcolor=NAV, padding=(16, 9))
@@ -173,14 +176,22 @@ class MovieApp(tk.Tk):
         ttk.Label(search_line, text="英文片名或电影编号", style="Muted.TLabel").pack(anchor="w", pady=(0, 4))
         self.search_entry = ttk.Entry(search_line, textvariable=self.query)
         self.search_entry.pack(side="left", fill="x", expand=True, padx=(0, 7))
-        ttk.Button(search_line, text="添加", command=self.add_selected).pack(side="right")
+        self.add_button = ttk.Button(search_line, text="添加", width=5, command=self.add_selected, state="disabled")
+        self.add_button.pack(side="right")
         movie_columns = (("id", "编号", 52, 42, False, "center"), ("title", "电影", 238, 185, True, "w"))
         catalog, self.catalog_view = table(self.movie_controls, movie_columns, height=4)
         catalog.grid(row=1, column=0, sticky="nsew", pady=(6, 0))
         self.catalog_view.bind("<Double-1>", self.add_on_double_click)
         self.catalog_view.bind("<Return>", self.add_selected)
-        self.search_status = ttk.Label(self.movie_controls, text="", style="Muted.TLabel")
-        self.search_status.grid(row=2, column=0, sticky="w", pady=(3, 7))
+        self.catalog_view.bind("<<TreeviewSelect>>", self.update_catalog_action)
+        pagination = ttk.Frame(self.movie_controls)
+        pagination.grid(row=2, column=0, sticky="ew", pady=(4, 7))
+        self.search_status = ttk.Label(pagination, text="正在读取电影目录…", style="Muted.TLabel")
+        self.search_status.pack(side="left")
+        self.next_page_button = ttk.Button(pagination, text="下一页", style="Pager.TButton", command=lambda: self.change_catalog_page(1), state="disabled")
+        self.next_page_button.pack(side="right")
+        self.previous_page_button = ttk.Button(pagination, text="上一页", style="Pager.TButton", command=lambda: self.change_catalog_page(-1), state="disabled")
+        self.previous_page_button.pack(side="right", padx=(5, 4))
 
         picked_heading = ttk.Frame(self.movie_controls)
         picked_heading.grid(row=3, column=0, sticky="ew")
@@ -311,23 +322,48 @@ class MovieApp(tk.Tk):
         self.data_status.configure(text=f"MovieLens 100K   ·   {len(session.dataset.titles):,} 部电影   ·   {len(session.dataset.ratings):,} 条评分")
         self.user_help.configure(text=f"输入 1–{len(session.history)} 之间的编号。系统会根据该用户的历史高分电影推荐。")
         self.load_example()
+        self.update_catalog()
         self.generate()
 
-    def update_catalog(self, *_):
+    def search_catalog(self, *_):
+        self.catalog_page = 0
+        self.update_catalog()
+
+    def change_catalog_page(self, step):
+        self.catalog_page += step
+        self.update_catalog()
+
+    def update_catalog(self):
         if self.session is None:
             return
-        matches = [row for row in self.session.matching_movies(self.query.get()) if row[0] not in self.picks]
-        replace_rows(self.catalog_view, ((str(movie_id), (movie_id, title)) for movie_id, title in matches[:100]))
-        if matches:
-            self.catalog_view.selection_set(str(matches[0][0]))
-        label = f"显示前 100 部，共 {len(matches)} 部" if len(matches) > 100 else f"{len(matches)} 部匹配电影"
-        self.search_status.configure(text=label if matches else "没有匹配项，请换一个片名或编号。")
+        matches = self.session.matching_movies(self.query.get())
+        page_count = (len(matches) + MOVIES_PER_PAGE - 1) // MOVIES_PER_PAGE
+        self.catalog_page = max(0, min(self.catalog_page, page_count - 1))
+        start = self.catalog_page * MOVIES_PER_PAGE
+        rows = matches[start:start + MOVIES_PER_PAGE]
+        replace_rows(self.catalog_view, ((str(movie_id), (movie_id, title)) for movie_id, title in rows))
+        self.catalog_view.yview_moveto(0)
+        if rows:
+            first = str(rows[0][0])
+            self.catalog_view.focus(first)
+            self.catalog_view.selection_set(first)
+        label = f"{self.catalog_page + 1} / {page_count} 页 · 共 {len(matches):,} 部" if rows else "没有匹配的电影"
+        self.search_status.configure(text=label)
+        self.previous_page_button.state(["!disabled" if self.catalog_page > 0 else "disabled"])
+        self.next_page_button.state(["!disabled" if self.catalog_page + 1 < page_count else "disabled"])
+        self.update_catalog_action()
+
+    def update_catalog_action(self, *_):
+        chosen = self.catalog_view.selection()
+        already_picked = bool(chosen) and int(chosen[0]) in self.picks
+        self.add_button.configure(text="已添加" if already_picked else "添加")
+        self.add_button.state(["!disabled" if chosen and not already_picked else "disabled"])
 
     def update_picks(self):
         titles = self.session.dataset.titles
         replace_rows(self.picked_view, ((str(movie_id), (movie_id, titles[movie_id])) for movie_id in self.picks))
         self.picks_label.configure(text=f"喜欢的电影（{len(self.picks)}）")
-        self.update_catalog()
+        self.update_catalog_action()
         self.form_changed()
 
     def load_example(self):
@@ -336,15 +372,18 @@ class MovieApp(tk.Tk):
             self.update_picks()
 
     def add_on_double_click(self, event):
-        if self.catalog_view.identify_row(event.y):
+        row = self.catalog_view.identify_row(event.y)
+        if row:
+            self.catalog_view.selection_set(row)
             self.add_selected()
 
     def add_selected(self, *_):
         chosen = self.catalog_view.selection()
-        if chosen:
-            self.picks.append(int(chosen[0]))
-            self.update_picks()
-            self.picked_view.see(chosen[0])
+        if not chosen or int(chosen[0]) in self.picks:
+            return
+        self.picks.append(int(chosen[0]))
+        self.update_picks()
+        self.picked_view.see(chosen[0])
 
     def remove_selected(self, *_):
         chosen = self.picked_view.selection()
