@@ -38,8 +38,12 @@ def evaluation_window(history: np.ndarray, future: np.ndarray, catalog: np.ndarr
     return EvaluationWindow(users, history[users], targets[users], int(targets.sum()), int(positives.sum()))
 
 
-def evaluate(model: Recommender, window: EvaluationWindow, method: str, top_k: int, shrinkage: float = 10) -> Scores:
-    predictions = model.score_profiles(window.profiles, method, shrinkage)
+def evaluate(
+    model: Recommender, window: EvaluationWindow, method: str, top_k: int,
+    shrinkage: float = 10, *, visible_profiles: np.ndarray | None = None,
+) -> Scores:
+    profiles = window.profiles if visible_profiles is None else visible_profiles
+    predictions = model.score_profiles(profiles, method, shrinkage)
     ranked = model.rank(window.profiles, predictions, top_k)
     hits = np.take_along_axis(window.targets, ranked.clip(min=0), axis=1) & (ranked >= 0)
     target_counts = window.targets.sum(axis=1)

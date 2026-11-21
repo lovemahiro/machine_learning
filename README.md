@@ -35,6 +35,16 @@ python main.py recommend --user 42 --model shrinkage --shrinkage 5
 
 也可以手动下载官方压缩包，将解压的 `ml-100k` 目录放在 `data/` 下，或运行 `python main.py --data-dir <数据目录> evaluate` 指定已有数据。公开分享代码时，请让使用者自行从 GroupLens 下载数据。 [官方下载与使用条款](https://grouplens.org/datasets/movielens/100k/)
 
+### 固定用户的稀疏历史实验
+
+```powershell
+python main.py sparsity
+```
+
+从同一批用户的历史中截取最早的 0、1、3、5 或 10 条高分记录。四种方法共用测试目标和候选集，用其他用户的历史训练模型。输出默认保存到 `results/sparsity/`。
+
+本次 MovieLens 100K 实验包含 **70 位用户**。原版 ItemCF 在 1 条高分记录下的 Recall@10 高于热门推荐、NDCG@10 略低。输入 3 条高分记录时，原版 ItemCF 的两个指标分别为 **0.1406** 和 **0.2131**，均高于热门推荐的 **0.1075** 和 **0.1444**。加权 ItemCF 在 1 条记录时优于原版，在 3、5、10 条时两个指标均略低于原版。详见[实验口径、对比图和完整结果](docs/sparsity/summary.md)。
+
 ## 数据与评估
 
 - 使用 [GroupLens 发布的 MovieLens 100K](https://grouplens.org/datasets/movielens/100k/)，其中包含 10 万条带时间戳的电影评分。实验使用用户 ID、电影 ID、评分和时间戳，案例展示时补充电影名称。

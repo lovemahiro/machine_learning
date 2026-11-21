@@ -7,6 +7,7 @@ from data import MovieLens, load_dataset
 from experiment import run_experiment
 from models import MODEL_LABELS
 from recommendations import RecommendationSession
+from sparsity import run_sparsity_experiment
 
 
 ROOT = Path(__file__).resolve().parent
@@ -63,6 +64,9 @@ def main() -> None:
     evaluate_parser.add_argument("--top-k", type=positive_int, default=10, help="评估列表长度，默认 10")
     evaluate_parser.add_argument("--output-dir", type=Path, default=ROOT / "results", help="实验结果目录")
 
+    sparsity_parser = commands.add_parser("sparsity", help="用固定用户比较不同数量的可见高分记录")
+    sparsity_parser.add_argument("--output-dir", type=Path, default=ROOT / "results" / "sparsity", help="稀疏历史实验结果目录")
+
     search_parser = commands.add_parser("search", help="按英文片名查电影编号")
     search_parser.add_argument("query", help="英文片名或其一部分")
     search_parser.add_argument("--limit", type=positive_int, default=10, help="最多显示多少条")
@@ -80,6 +84,8 @@ def main() -> None:
         dataset = load_dataset(args.data_dir)
         if args.command == "evaluate":
             run_experiment(dataset, args.output_dir, args.top_k)
+        elif args.command == "sparsity":
+            run_sparsity_experiment(dataset, args.output_dir)
         elif args.command == "search":
             show_movies(dataset, args.query, args.limit)
         else:
